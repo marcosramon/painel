@@ -77,7 +77,7 @@ function generateWordCloud(texts: string[]) {
   return Object.entries(freq)
     .filter(([_, count]) => count >= minFreq)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 60)
+    .slice(0, 40)
     .map(([word, count]) => ({ word, count }));
 }
 
