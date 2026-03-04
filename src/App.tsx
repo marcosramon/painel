@@ -5,7 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieCha
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, getDocs } from "firebase/firestore";
 
-// 2. CONFIGURAÇÃO DO FIREBASE (Cole as suas chaves aqui novamente!)
+// 2. CONFIGURAÇÃO DO FIREBASE (Coloque suas chaves aqui!)
 const firebaseConfig = {
   apiKey: 'AIzaSyDXVxk8FFegjUyVElsU8ATuxcgXSsleroo',
   authDomain: 'app-fic-ia.firebaseapp.com',
@@ -230,13 +230,20 @@ export default function App() {
         padding:"36px 24px 32px", position:"relative", overflow:"hidden",
       }}>
         <NetworkBg/>
-        <div style={{position:"relative", maxWidth:640, margin:"0 auto"}}>
-          {/* LOGO ADICIONADO AQUI */}
+        <div style={{position:"relative", maxWidth:640, margin:"0 auto", textAlign: "center"}}>
+          
+          {/* LOGO CENTRALIZADO AQUI */}
           <img 
             src="/painel/logo-ifb.png" 
             alt="Logo IFB" 
-            style={{ height: "48px", marginBottom: "20px", display: "block" }} 
+            style={{ 
+              height: "70px", 
+              objectFit: "contain", 
+              display: "block", 
+              margin: "0 auto 24px auto" 
+            }} 
           />
+
           <h1 style={{fontSize:"clamp(20px, 4.5vw, 30px)", color:T.white, margin:0, fontWeight:700, lineHeight:1.25}}>
             Aplicações da Inteligência Artificial<br/>na Educação Profissional
           </h1>
