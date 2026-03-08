@@ -43,6 +43,107 @@ const BRAZILIAN_STATES = [
 ];
 
 // ============================================================
+// NOVO: Normalização de texto (remove acentos + lowercase)
+// ============================================================
+
+function removeAccents(str: string): string {
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+function normalizeKey(str: string): string {
+  return removeAccents(str.trim()).toLowerCase();
+}
+
+// ============================================================
+// NOVO: Mapeamento de sinônimos para profissões
+// ============================================================
+
+const PROFISSAO_SYNONYMS: Record<string, string> = {
+  "professor": "Docente",
+  "professora": "Docente",
+  "docente": "Docente",
+  "prof": "Docente",
+  "prof.": "Docente",
+  "professora universitaria": "Docente",
+  "professor universitario": "Docente",
+  "professor universitária": "Docente",
+  "professor universitário": "Docente",
+};
+
+function normalizeProfissao(raw: string): string {
+  const key = normalizeKey(raw);
+  // Procura match exato no mapa
+  if (PROFISSAO_SYNONYMS[key]) return PROFISSAO_SYNONYMS[key];
+  // Procura match parcial: se começa com "professor" ou "professora"
+  if (key.startsWith("professor") || key.startsWith("professora") || key === "docente") {
+    return "Docente";
+  }
+  // Caso padrão: capitaliza normalmente
+  const s = raw.trim();
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+// ============================================================
+// NOVO: Agrupamento inteligente de cidades
+// Agrupa variantes (com/sem acento, maiúsculas/minúsculas)
+// e exibe a forma mais frequente como label
+// ============================================================
+
+function aggregateCities(entries: any[]): { name: string; value: number }[] {
+  // Mapeia chave normalizada → { variantes com contagem, total }
+  const groups: Record<string, { variants: Record<string, number>; total: number; estado: string }> = {};
+
+  entries.forEach(e => {
+    if (e.cidade && e.estado) {
+      const cidadeRaw = e.cidade.trim();
+      const estadoRaw = e.estado.trim();
+      const key = normalizeKey(cidadeRaw) + "|" + normalizeKey(estadoRaw);
+
+      if (!groups[key]) {
+        groups[key] = { variants: {}, total: 0, estado: estadoRaw };
+      }
+      groups[key].variants[cidadeRaw] = (groups[key].variants[cidadeRaw] || 0) + 1;
+      groups[key].total += 1;
+    }
+  });
+
+  return Object.values(groups)
+    .map(g => {
+      // Escolhe a variante mais frequente como label de exibição
+      const bestVariant = Object.entries(g.variants).sort((a, b) => b[1] - a[1])[0][0];
+      return { name: `${bestVariant}, ${g.estado}`, value: g.total };
+    })
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 15);
+}
+
+// ============================================================
+// NOVO: Agrupamento inteligente de estados
+// (normaliza caixa/acentos para estados digitados manualmente)
+// ============================================================
+
+function aggregateStates(entries: any[]): { name: string; value: number }[] {
+  const groups: Record<string, { variants: Record<string, number>; total: number }> = {};
+
+  entries.forEach(e => {
+    if (e.estado) {
+      const raw = e.estado.trim();
+      const key = normalizeKey(raw);
+      if (!groups[key]) groups[key] = { variants: {}, total: 0 };
+      groups[key].variants[raw] = (groups[key].variants[raw] || 0) + 1;
+      groups[key].total += 1;
+    }
+  });
+
+  return Object.values(groups)
+    .map(g => {
+      const bestVariant = Object.entries(g.variants).sort((a, b) => b[1] - a[1])[0][0];
+      return { name: bestVariant, value: g.total };
+    })
+    .sort((a, b) => b[1] - a[1]);
+}
+
+// ============================================================
 // Tokenização — trata enclíticos (utilizá-la → utilizar)
 // ============================================================
 
@@ -95,6 +196,37 @@ function aggregateWithOthers(data: {name:string,value:number}[], maxItems: numbe
   const top = data.slice(0, maxItems - 1);
   const othersVal = data.slice(maxItems - 1).reduce((s, d) => s + d.value, 0);
   return [...top, { name: "Outros", value: othersVal }];
+}
+
+// ============================================================
+// NOVO: Agregação com normalização por chave (para formação)
+// Agrupa variantes de caixa/acento na mesma categoria
+// ============================================================
+
+function aggregateNormalized(
+  entries: any[],
+  field: string,
+  transformFn?: (raw: string) => string
+): { name: string; value: number }[] {
+  const groups: Record<string, { variants: Record<string, number>; total: number }> = {};
+
+  entries.forEach(e => {
+    const raw = e[field];
+    if (!raw) return;
+    const label = transformFn ? transformFn(raw) : normalizeCategory(raw);
+    const key = normalizeKey(label);
+
+    if (!groups[key]) groups[key] = { variants: {}, total: 0 };
+    groups[key].variants[label] = (groups[key].variants[label] || 0) + 1;
+    groups[key].total += 1;
+  });
+
+  return Object.values(groups)
+    .map(g => {
+      const bestVariant = Object.entries(g.variants).sort((a, b) => b[1] - a[1])[0][0];
+      return { name: bestVariant, value: g.total };
+    })
+    .sort((a, b) => b[1] - a[1]);
 }
 
 // ============================================================
@@ -310,41 +442,26 @@ export default function App() {
     setSubmitting(false);
   }, [nome,cidade,estado,formacao,profissao,expectativas,alreadySubmitted]);
 
-  // ---- Dados derivados ----
+  // ---- Dados derivados (ALTERADOS) ----
 
-  const stateData = useMemo(() => {
-    const f: Record<string, number> = {};
-    entries.forEach(e => { if (e.estado) f[e.estado] = (f[e.estado] || 0) + 1; });
-    return Object.entries(f).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
-  }, [entries]);
+  // ALTERADO: usa aggregateStates com normalização
+  const stateData = useMemo(() => aggregateStates(entries), [entries]);
 
-  const cityData = useMemo(() => {
-    const f: Record<string, number> = {};
-    entries.forEach(e => {
-      if (e.cidade && e.estado) {
-        const k = `${e.cidade.trim()}, ${e.estado}`;
-        f[k] = (f[k] || 0) + 1;
-      }
-    });
-    return Object.entries(f).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([name, value]) => ({ name, value }));
-  }, [entries]);
+  // ALTERADO: usa aggregateCities com normalização de acentos/caixa
+  const cityData = useMemo(() => aggregateCities(entries), [entries]);
 
+  // ALTERADO: usa aggregateNormalized para agrupar variantes de caixa/acento
+  // e aumenta maxItems de 8 para 12
   const formacaoData = useMemo(() => {
-    const f: Record<string, number> = {};
-    entries.forEach(e => {
-      if (e.formacao) { const k = normalizeCategory(e.formacao); f[k] = (f[k] || 0) + 1; }
-    });
-    const sorted = Object.entries(f).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
-    return aggregateWithOthers(sorted, 8);
+    const sorted = aggregateNormalized(entries, "formacao");
+    return aggregateWithOthers(sorted, 12);
   }, [entries]);
 
+  // ALTERADO: usa aggregateNormalized + normalizeProfissao para unificar
+  // Professor/Professora/Docente, e aumenta maxItems de 8 para 12
   const profissaoData = useMemo(() => {
-    const f: Record<string, number> = {};
-    entries.forEach(e => {
-      if (e.profissao) { const k = normalizeCategory(e.profissao); f[k] = (f[k] || 0) + 1; }
-    });
-    const sorted = Object.entries(f).sort((a, b) => b[1] - a[1]).map(([name, value]) => ({ name, value }));
-    return aggregateWithOthers(sorted, 8);
+    const sorted = aggregateNormalized(entries, "profissao", normalizeProfissao);
+    return aggregateWithOthers(sorted, 12);
   }, [entries]);
 
   const wordCloudData = useMemo(() => generateWordCloud(entries.map(e => e.expectativas || "")), [entries]);
@@ -519,8 +636,8 @@ export default function App() {
                 <div style={{display:"flex",borderBottom:`1px solid ${T.gray100}`}}>
                   {[
                     {n:entries.length, label:"respostas"},
-                    {n:new Set(entries.map(e => e.estado)).size, label:"estados"},
-                    {n:new Set(entries.map(e => (e.profissao || "").toLowerCase())).size, label:"profissões"},
+                    {n:stateData.length, label:"estados"},
+                    {n:aggregateNormalized(entries, "profissao", normalizeProfissao).length, label:"profissões"},
                   ].map((c, i) => (
                     <div key={i} style={{flex:1, padding:"20px 16px", textAlign:"center", borderRight:i < 2 ? `1px solid ${T.gray100}` : "none"}}>
                       <div style={{fontSize:28,fontWeight:700,color:T.blue700,lineHeight:1}}>{c.n}</div>
