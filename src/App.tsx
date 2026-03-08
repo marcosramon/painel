@@ -3,7 +3,7 @@ import { Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Treemap } from "rech
 
 // 1. IMPORTAÇÕES DO FIREBASE
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, onSnapshot } from "firebase/firestore";
+import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc } from "firebase/firestore";
 
 // 2. CONFIGURAÇÃO DO FIREBASE
 const firebaseConfig = {
@@ -390,13 +390,20 @@ export default function App() {
   const [formacao, setFormacao] = useState("");
   const [profissao, setProfissao] = useState("");
   const [expectativas, setExpectativas] = useState("");
+  const [adminAuth, setAdminAuth] = useState(false);
+  const [adminPass, setAdminPass] = useState("");
+  const [adminError, setAdminError] = useState("");
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  // Senha do painel admin — troque por algo seguro
+  const ADMIN_PASSWORD = "ifb2026yyz";
 
   // ---- Listener em tempo real (substitui getDocs) ----
   useEffect(() => {
     const unsubscribe = onSnapshot(
       collection(db, "apresentacoes"),
       (snapshot) => {
-        const data = snapshot.docs.map(doc => doc.data());
+        const data = snapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() }));
         setEntries(data);
         setLoading(false);
       },
@@ -441,6 +448,45 @@ export default function App() {
     }
     setSubmitting(false);
   }, [nome,cidade,estado,formacao,profissao,expectativas,alreadySubmitted]);
+
+  // ---- Admin: Exportar CSV ----
+  const handleExportCSV = useCallback(() => {
+    if (!entries.length) return;
+    const headers = ["Nome","Cidade","Estado","Formação","Profissão","Expectativas","Data/Hora"];
+    const rows = entries.map(e => [
+      e.nome || "",
+      e.cidade || "",
+      e.estado || "",
+      e.formacao || "",
+      e.profissao || "",
+      (e.expectativas || "").replace(/[\n\r]+/g, " "),
+      e.ts ? new Date(e.ts).toLocaleString("pt-BR") : "",
+    ]);
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(";"))
+      .join("\n");
+    // BOM para UTF-8 no Excel
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `apresentacoes_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [entries]);
+
+  // ---- Admin: Excluir resposta ----
+  const handleDelete = useCallback(async (id: string) => {
+    if (!window.confirm("Tem certeza que deseja excluir esta resposta?")) return;
+    setDeleting(id);
+    try {
+      await deleteDoc(doc(db, "apresentacoes", id));
+    } catch (err) {
+      console.error("Erro ao excluir:", err);
+      alert("Erro ao excluir. Verifique sua conexão.");
+    }
+    setDeleting(null);
+  }, []);
 
   // ---- Dados derivados (ALTERADOS) ----
 
@@ -508,6 +554,7 @@ export default function App() {
         {[
           {id:"form", label:"Formulário"},
           {id:"dashboard", label:`Painel da turma${entries.length ? ` (${entries.length})` : ""}`},
+          {id:"admin", label:"Admin"},
         ].map(tab => (
           <button key={tab.id}
             onClick={() => setView(tab.id)}
@@ -723,6 +770,135 @@ export default function App() {
                     <p style={{fontSize:11,color:T.gray400,margin:"0 0 12px"}}>Palavras mais frequentes nos textos de expectativa</p>
                     <WordCloud words={wordCloudData}/>
                   </section>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ADMIN */}
+        {view === "admin" && (
+          <div style={{background:T.white, padding:"28px 24px"}}>
+            {!adminAuth ? (
+              <div style={{maxWidth:320, margin:"0 auto", textAlign:"center", padding:"40px 0"}}>
+                <div style={{width:48,height:48,borderRadius:"50%",background:T.blue100,display:"inline-flex",alignItems:"center",justifyContent:"center",marginBottom:16}}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" stroke={T.blue700} strokeWidth="2"/><path d="M7 11V7a5 5 0 0110 0v4" stroke={T.blue700} strokeWidth="2" strokeLinecap="round"/></svg>
+                </div>
+                <h2 style={{fontSize:16, fontWeight:600, color:T.blue900, margin:"0 0 6px"}}>Painel de administração</h2>
+                <p style={{fontSize:12, color:T.gray400, margin:"0 0 20px"}}>Digite a senha para acessar</p>
+                <input
+                  type="password"
+                  value={adminPass}
+                  onChange={e => { setAdminPass(e.target.value); setAdminError(""); }}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") {
+                      if (adminPass === ADMIN_PASSWORD) { setAdminAuth(true); setAdminError(""); }
+                      else setAdminError("Senha incorreta.");
+                    }
+                  }}
+                  placeholder="Senha"
+                  style={{
+                    width:"100%", padding:"10px 14px", fontSize:14, fontFamily:T.font,
+                    border:`1px solid ${adminError ? "#c0392b" : T.gray200}`, borderRadius:4,
+                    outline:"none", background:T.white, color:T.blue900, boxSizing:"border-box",
+                    textAlign:"center",
+                  }}
+                />
+                {adminError && <div style={{color:"#c0392b",fontSize:11,marginTop:6}}>{adminError}</div>}
+                <button
+                  onClick={() => {
+                    if (adminPass === ADMIN_PASSWORD) { setAdminAuth(true); setAdminError(""); }
+                    else setAdminError("Senha incorreta.");
+                  }}
+                  style={{
+                    marginTop:14, width:"100%", padding:"10px", background:T.blue700,
+                    color:T.white, border:"none", borderRadius:4, fontSize:13,
+                    fontWeight:600, cursor:"pointer", fontFamily:T.font,
+                  }}>
+                  Entrar
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Toolbar */}
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20}}>
+                  <h2 style={{fontSize:15, fontWeight:600, color:T.blue900, margin:0}}>
+                    Respostas ({entries.length})
+                  </h2>
+                  <div style={{display:"flex", gap:8}}>
+                    <button onClick={handleExportCSV} disabled={!entries.length}
+                      style={{
+                        padding:"8px 16px", fontSize:12, fontWeight:600, fontFamily:T.font,
+                        background:entries.length ? T.blue700 : T.gray200,
+                        color:entries.length ? T.white : T.gray400,
+                        border:"none", borderRadius:4,
+                        cursor:entries.length ? "pointer" : "not-allowed",
+                        display:"flex", alignItems:"center", gap:6,
+                      }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      Exportar CSV
+                    </button>
+                    <button onClick={() => { setAdminAuth(false); setAdminPass(""); }}
+                      style={{
+                        padding:"8px 12px", fontSize:12, fontWeight:500, fontFamily:T.font,
+                        background:"transparent", color:T.gray400, border:`1px solid ${T.gray200}`,
+                        borderRadius:4, cursor:"pointer",
+                      }}>
+                      Sair
+                    </button>
+                  </div>
+                </div>
+
+                {entries.length === 0 ? (
+                  <p style={{textAlign:"center", color:T.gray400, fontSize:13, padding:"40px 0"}}>Nenhuma resposta registrada.</p>
+                ) : (
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%", borderCollapse:"collapse", fontSize:12, fontFamily:T.font}}>
+                      <thead>
+                        <tr style={{borderBottom:`2px solid ${T.gray200}`}}>
+                          {["Nome","Cidade","UF","Formação","Profissão","Expectativas",""].map((h, i) => (
+                            <th key={i} style={{
+                              padding:"8px 6px", textAlign:"left", fontWeight:600,
+                              color:T.blue900, fontSize:11, whiteSpace:"nowrap",
+                              textTransform:"uppercase", letterSpacing:"0.03em",
+                            }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {entries
+                          .sort((a, b) => (b.ts || 0) - (a.ts || 0))
+                          .map((e) => (
+                          <tr key={e._id} style={{borderBottom:`1px solid ${T.gray100}`}}>
+                            <td style={{padding:"8px 6px", fontWeight:500, color:T.blue900, whiteSpace:"nowrap"}}>{e.nome}</td>
+                            <td style={{padding:"8px 6px", color:T.gray600, whiteSpace:"nowrap"}}>{e.cidade}</td>
+                            <td style={{padding:"8px 6px", color:T.gray600}}>{e.estado}</td>
+                            <td style={{padding:"8px 6px", color:T.gray600}}>{e.formacao}</td>
+                            <td style={{padding:"8px 6px", color:T.gray600}}>{e.profissao}</td>
+                            <td style={{padding:"8px 6px", color:T.gray600, maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}
+                              title={e.expectativas}>{e.expectativas}</td>
+                            <td style={{padding:"8px 6px", textAlign:"center"}}>
+                              <button
+                                onClick={() => handleDelete(e._id)}
+                                disabled={deleting === e._id}
+                                title="Excluir resposta"
+                                style={{
+                                  background:"transparent", border:"none", cursor:"pointer",
+                                  color: deleting === e._id ? T.gray200 : "#c0392b",
+                                  fontSize:14, padding:"2px 6px", borderRadius:3,
+                                  opacity: deleting === e._id ? 0.5 : 0.6,
+                                }}
+                                onMouseEnter={ev => { (ev.target as HTMLElement).style.opacity = "1"; }}
+                                onMouseLeave={ev => { (ev.target as HTMLElement).style.opacity = "0.6"; }}
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </>
             )}
