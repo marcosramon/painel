@@ -113,7 +113,7 @@ function aggregateCities(entries: any[]): { name: string; value: number }[] {
       const bestVariant = Object.entries(g.variants).sort((a, b) => b[1] - a[1])[0][0];
       return { name: `${bestVariant}, ${g.estado}`, value: g.total };
     })
-    .sort((a, b) => b[1] - a[1])
+    .sort((a, b) => b.value - a.value)
     .slice(0, 15);
 }
 
@@ -140,7 +140,7 @@ function aggregateStates(entries: any[]): { name: string; value: number }[] {
       const bestVariant = Object.entries(g.variants).sort((a, b) => b[1] - a[1])[0][0];
       return { name: bestVariant, value: g.total };
     })
-    .sort((a, b) => b[1] - a[1]);
+    .sort((a, b) => b.value - a.value);
 }
 
 // ============================================================
@@ -226,7 +226,7 @@ function aggregateNormalized(
       const bestVariant = Object.entries(g.variants).sort((a, b) => b[1] - a[1])[0][0];
       return { name: bestVariant, value: g.total };
     })
-    .sort((a, b) => b[1] - a[1]);
+    .sort((a, b) => b.value - a.value);
 }
 
 // ============================================================
